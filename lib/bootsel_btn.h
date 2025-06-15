@@ -4,6 +4,7 @@
 // Trecho para modo BOOTSEL com botão B
 #include "pico/bootrom.h"
 #define botaoB 6
+
 void gpio_irq_handler(uint gpio, uint32_t events){
     reset_usb_boot(0, 0);
 }

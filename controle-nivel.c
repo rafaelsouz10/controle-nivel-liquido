@@ -11,15 +11,15 @@
 #include "lib/config_display.h"
 
 #define LED_BOMBA 12
-#define RELAY_PIN 13
+#define RELAY_PIN 8
 #define PINO_POTENCIOMETRO 28  // ADC2
 
-#define WIFI_SSID "Ace"
+#define WIFI_SSID "AP_"
 #define WIFI_PASS "congresso@"
 
 volatile int nivel_min = 1000;
 volatile int nivel_max = 3000;
-volatile int nivel_atual = 0;
+volatile uint16_t nivel_atual = 0;
 volatile bool bomba_ligada = false;
 
 const char HTML_BODY[] =
@@ -50,6 +50,12 @@ const char HTML_BODY[] =
 "<button onclick='enviar()'>Configurar</button>"
 "</body></html>";
 
+struct http_state {
+    char response[1024];
+    size_t len;
+    size_t sent;
+};
+
 static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len) {
     struct http_state *hs = (struct http_state *)arg;
     hs->sent += len;
@@ -59,12 +65,6 @@ static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len) {
     }
     return ERR_OK;
 }
-
-struct http_state {
-    char response[1024];
-    size_t len;
-    size_t sent;
-};
 
 static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
     if (!p) {
@@ -137,7 +137,7 @@ void atualizar_bomba(int nivel) {
 int main() {
     stdio_init_all();
     display_init();
-    
+
     adc_init();
     adc_gpio_init(PINO_POTENCIOMETRO);
 
@@ -151,36 +151,64 @@ int main() {
 
     if (cyw43_arch_init()) return 1;
     cyw43_arch_enable_sta_mode();
-    if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 10000)) {
+    if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 5000)) {
         ssd1306_fill(&ssd, 0);
         ssd1306_draw_string(&ssd, "Falha Wi-Fi", 0, 0);
         ssd1306_send_data(&ssd);
         return 1;
     }
 
-    start_http_server();
+    // Obtem o IP e monta string
+    uint32_t ip_addr = cyw43_state.netif[0].ip_addr.addr;
+    uint8_t *ip = (uint8_t *)&ip_addr;
+    char ip_display[24];
+    snprintf(ip_display, sizeof(ip_display), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+
+    // Exibe mensagem inicial
     ssd1306_fill(&ssd, 0);
-    ssd1306_draw_string(&ssd, "Wi-Fi OK", 0, 0);
+    ssd1306_draw_string(&ssd, "Wi-Fi => OK", 0, 0);
+    ssd1306_draw_string(&ssd, ip_display, 0, 10);
     ssd1306_send_data(&ssd);
+
+    start_http_server();
 
     while (1) {
         cyw43_arch_poll();
+
         adc_select_input(2);
         nivel_atual = adc_read();
         atualizar_bomba(nivel_atual);
         gpio_put(LED_BOMBA, bomba_ligada);
 
-        char buffer[32];
-        ssd1306_fill(&ssd, 0);
-        snprintf(buffer, sizeof(buffer), "Nivel: %d", nivel_atual);
-        ssd1306_draw_string(&ssd, buffer, 0, 0);
-        snprintf(buffer, sizeof(buffer), "Bomba: %s", bomba_ligada ? "Ligada" : "Desligada");
-        ssd1306_draw_string(&ssd, buffer, 0, 10);
-        ssd1306_send_data(&ssd);
+        char str_nivel[10], str_bomba[10];
+        snprintf(str_nivel, sizeof(str_nivel), "%d", nivel_atual);
+        snprintf(str_bomba, sizeof(str_bomba), "%s", bomba_ligada ? "ON" : "OFF");
 
+        ssd1306_fill(&ssd, 0);
+
+        // Moldura e divisões
+        ssd1306_rect(&ssd, 3, 3, 122, 60, true, false);
+        ssd1306_line(&ssd, 3, 25, 123, 25, true);
+        ssd1306_line(&ssd, 3, 37, 123, 37, true);
+
+        // Cabeçalho
+        ssd1306_draw_string(&ssd, "CEPEDI   TIC37", 8, 6);
+        ssd1306_draw_string(&ssd, "EMBARCATECH", 20, 16);
+
+        // IP
+        ssd1306_draw_string(&ssd, ip_display, 4, 28);
+
+        // Nível
+        ssd1306_draw_string(&ssd, "Nivel:", 8, 40);
+        ssd1306_draw_string(&ssd, str_nivel, 50, 40);
+
+        // Bomba
+        ssd1306_draw_string(&ssd, "Bomba:", 8, 50);
+        ssd1306_draw_string(&ssd, str_bomba, 60, 50);
+
+        ssd1306_send_data(&ssd);
         sleep_ms(500);
     }
-
     cyw43_arch_deinit();
     return 0;
 }

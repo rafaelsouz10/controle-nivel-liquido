@@ -20,7 +20,7 @@
 #define WIFI_PASS "nilton123"
 
 // Variáveis globais do sistema
-volatile int nivel_min = 1000;
+volatile int nivel_min = 2000;
 volatile int nivel_max = 3000;
 volatile uint16_t nivel_atual = 0;
 volatile bool bomba_ligada = false;

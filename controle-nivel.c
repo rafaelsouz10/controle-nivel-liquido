@@ -14,6 +14,7 @@
 #define LED_BOMBA 12
 #define RELAY_PIN 8
 #define PINO_POTENCIOMETRO 28  // ADC2
+#define BOTAO_A 5
 
 // Wi-Fi
 #define WIFI_SSID "Ace"
@@ -34,8 +35,7 @@ const char HTML_BODY[] =
 ".barra{width:60%;height:20px;background:#ddd;margin:10px auto;border-radius:10px;overflow:hidden;}"
 ".preenchimento{height:100%;background:#2196F3;transition:width 0.3s;}"
 ".botao{font-size:20px;padding:10px 30px;margin:10px;border:none;border-radius:8px;color:white;}"
-".ligar{background:#4CAF50;}"
-".desligar{background:#f44336;}"
+".reset{background:#FF9800;}"
 "input{padding:5px;margin:5px;width:80px;}"
 "#confirm{color:green;font-weight:bold;margin-top:10px;}"
 "</style>"
@@ -61,13 +61,19 @@ const char HTML_BODY[] =
 "}"
 "}"
 "setInterval(function(){atualizar();},1000);"
-"function comando(cmd){fetch('/comando?acao='+cmd);}"
 "function configurar(){"
 "var min = document.getElementById('min').value;"
 "var max = document.getElementById('max').value;"
 "fetch('/config?min='+min+'&max='+max).then(r=>r.json()).then(data=>{"
 "document.getElementById('confirm').innerText = "
 "'Configuração atualizada: min=' + data.min + ', max=' + data.max;"
+"});"
+"}"
+"function resetar(){"
+"fetch('/reset').then(r=>r.text()).then(data=>{"
+"document.getElementById('confirm').innerText = data;"
+"document.getElementById('min').value = 2000;"
+"document.getElementById('max').value = 3000;"
 "});"
 "}"
 "window.onload = inicializar;"
@@ -82,9 +88,8 @@ const char HTML_BODY[] =
 "<input type='number' id='max' placeholder='Máximo'>"
 "<button class='botao' style='background:#2196F3;' onclick='configurar()'>Configurar</button>"
 "</div>"
+"<button class='botao reset' onclick='resetar()'>Resetar Limites</button>"
 "<p id='confirm'></p>"
-"<button class='botao ligar' onclick=\"comando('ligar')\">Ligar</button>"
-"<button class='botao desligar' onclick=\"comando('desligar')\">Desligar</button>"
 "</body></html>";
 
 // Estrutura para manter o estado da resposta HTTP
@@ -93,6 +98,13 @@ struct http_state {
     size_t len;
     size_t sent;
 };
+
+// Callback botão A
+void reset_callback(uint gpio, uint32_t events) {
+    nivel_min = 2000;
+    nivel_max = 3000;
+    printf("[RESET BUTTON] Limites resetados: min=2000, max=3000\n");
+}
 
 // Callback quando parte da resposta foi enviada
 static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len) {
@@ -146,26 +158,7 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
             "%s",
             json_len, json);
     } 
-    else if (strstr(req, "GET /comando?")) {
-        if (strstr(req, "acao=ligar")) {
-            gpio_put(RELAY_PIN, 1);
-            bomba_ligada = true;
-        } else if (strstr(req, "acao=desligar")) {
-            gpio_put(RELAY_PIN, 0);
-            bomba_ligada = false;
-        }
-        const char *resp = "OK";
-        hs->len = snprintf(hs->response, sizeof(hs->response),
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: %d\r\n"
-            "Connection: close\r\n"
-            "\r\n"
-            "%s",
-            (int)strlen(resp), resp);
-    } 
     else if (strstr(req, "GET /config?")) {
-        // Busca min e max na URL
         char *min_str = strstr(req, "min=");
         char *max_str = strstr(req, "max=");
         if (min_str) nivel_min = atoi(min_str + 4);
@@ -183,9 +176,21 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
             "\r\n"
             "%s",
             config_len, config_json);
-
-        printf("[CONFIG] Novo min: %d, max: %d\n", nivel_min, nivel_max);
     } 
+    else if (strstr(req, "GET /reset")) {
+        nivel_min = 2000;
+        nivel_max = 3000;
+        const char *resp = "Limites resetados para padrão (2000 / 3000)";
+        hs->len = snprintf(hs->response, sizeof(hs->response),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            "%s",
+            (int)strlen(resp), resp);
+        printf("[RESET] Limites resetados: min=2000, max=3000\n");
+    }
     else {
         const char *resp = "404 Not Found";
         hs->len = snprintf(hs->response, sizeof(hs->response),
@@ -197,8 +202,6 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
             "%s",
             (int)strlen(resp), resp);
     }
-
-    printf("=== HTTP RESPONSE ===\n%s\n=== END RESPONSE ===\n", hs->response);
 
     tcp_arg(tpcb, hs);
     tcp_sent(tpcb, http_sent);
@@ -251,6 +254,11 @@ int main() {
     gpio_init(LED_BOMBA);
     gpio_set_dir(LED_BOMBA, GPIO_OUT);
     gpio_put(LED_BOMBA, 0);
+
+    gpio_init(BOTAO_A);
+    gpio_set_dir(BOTAO_A, GPIO_IN);
+    gpio_pull_up(BOTAO_A);
+    gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, reset_callback);
 
     if (cyw43_arch_init()) return 1;
     cyw43_arch_enable_sta_mode();

@@ -16,8 +16,8 @@
 #define PINO_POTENCIOMETRO 28  // ADC2
 
 // Wi-Fi
-#define WIFI_SSID "TP LINK"
-#define WIFI_PASS "nilton123"
+#define WIFI_SSID "Ace"
+#define WIFI_PASS "congresso@"
 
 // Variáveis globais do sistema
 volatile int nivel_min = 2000;
@@ -36,21 +36,53 @@ const char HTML_BODY[] =
 ".botao{font-size:20px;padding:10px 30px;margin:10px;border:none;border-radius:8px;color:white;}"
 ".ligar{background:#4CAF50;}"
 ".desligar{background:#f44336;}"
+"input{padding:5px;margin:5px;width:80px;}"
+"#confirm{color:green;font-weight:bold;margin-top:10px;}"
 "</style>"
 "<script>"
-"function atualizar(){"
+"function inicializar(){"
 "fetch('/estado').then(r=>r.json()).then(data=>{"
+"document.getElementById('min').value = data.min;"
+"document.getElementById('max').value = data.max;"
+"atualizar(data);"
+"});"
+"}"
+"function atualizar(data){"
+"if(!data){"
+"fetch('/estado').then(r=>r.json()).then(d=>{"
+"document.getElementById('bomba').innerText=d.bomba?'Ligada':'Desligada';"
+"document.getElementById('nivel_valor').innerText=d.nivel;"
+"document.getElementById('barra_nivel').style.width=(d.nivel/4095*100)+'%';"
+"});"
+"}else{"
 "document.getElementById('bomba').innerText=data.bomba?'Ligada':'Desligada';"
 "document.getElementById('nivel_valor').innerText=data.nivel;"
 "document.getElementById('barra_nivel').style.width=(data.nivel/4095*100)+'%';"
-"});}setInterval(atualizar,1000);"
+"}"
+"}"
+"setInterval(function(){atualizar();},1000);"
 "function comando(cmd){fetch('/comando?acao='+cmd);}"
+"function configurar(){"
+"var min = document.getElementById('min').value;"
+"var max = document.getElementById('max').value;"
+"fetch('/config?min='+min+'&max='+max).then(r=>r.json()).then(data=>{"
+"document.getElementById('confirm').innerText = "
+"'Configuração atualizada: min=' + data.min + ', max=' + data.max;"
+"});"
+"}"
+"window.onload = inicializar;"
 "</script></head><body>"
 "<h1>CEPEDI TIC37</h1>"
 "<h2>EMBARCATECH</h2>"
 "<p>Bomba: <span id='bomba'>--</span></p>"
 "<div class='barra'><div id='barra_nivel' class='preenchimento' style='width:0'></div></div>"
 "<p>Nível: <span id='nivel_valor'>--</span></p>"
+"<div style='margin-top:20px;'>"
+"<input type='number' id='min' placeholder='Mínimo'>"
+"<input type='number' id='max' placeholder='Máximo'>"
+"<button class='botao' style='background:#2196F3;' onclick='configurar()'>Configurar</button>"
+"</div>"
+"<p id='confirm'></p>"
 "<button class='botao ligar' onclick=\"comando('ligar')\">Ligar</button>"
 "<button class='botao desligar' onclick=\"comando('desligar')\">Desligar</button>"
 "</body></html>";
@@ -90,7 +122,6 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     hs->sent = 0;
 
     if (strncmp(req, "GET / ", 6) == 0 || strncmp(req, "GET /index.html", 15) == 0) {
-        // Serve o HTML principal
         int content_length = strlen(HTML_BODY);
         hs->len = snprintf(hs->response, sizeof(hs->response),
             "HTTP/1.1 200 OK\r\n"
@@ -133,6 +164,28 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
             "%s",
             (int)strlen(resp), resp);
     } 
+    else if (strstr(req, "GET /config?")) {
+        // Busca min e max na URL
+        char *min_str = strstr(req, "min=");
+        char *max_str = strstr(req, "max=");
+        if (min_str) nivel_min = atoi(min_str + 4);
+        if (max_str) nivel_max = atoi(max_str + 4);
+
+        char config_json[64];
+        int config_len = snprintf(config_json, sizeof(config_json),
+            "{\"min\":%d,\"max\":%d}", nivel_min, nivel_max);
+
+        hs->len = snprintf(hs->response, sizeof(hs->response),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            "%s",
+            config_len, config_json);
+
+        printf("[CONFIG] Novo min: %d, max: %d\n", nivel_min, nivel_max);
+    } 
     else {
         const char *resp = "404 Not Found";
         hs->len = snprintf(hs->response, sizeof(hs->response),
@@ -145,7 +198,6 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
             (int)strlen(resp), resp);
     }
 
-    // Debug do conteúdo
     printf("=== HTTP RESPONSE ===\n%s\n=== END RESPONSE ===\n", hs->response);
 
     tcp_arg(tpcb, hs);
@@ -155,7 +207,6 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     pbuf_free(p);
     return ERR_OK;
 }
-
 
 // Configura nova conexão
 static err_t connection_callback(void *arg, struct tcp_pcb *newpcb, err_t err) {
@@ -188,11 +239,11 @@ int main() {
     stdio_init_all();
     display_init();
 
-    // Configura ADC
+    bootsel_btn_callback();
+
     adc_init();
     adc_gpio_init(PINO_POTENCIOMETRO);
 
-    // Configura pinos da bomba
     gpio_init(RELAY_PIN);
     gpio_set_dir(RELAY_PIN, GPIO_OUT);
     gpio_put(RELAY_PIN, 0);
@@ -201,7 +252,6 @@ int main() {
     gpio_set_dir(LED_BOMBA, GPIO_OUT);
     gpio_put(LED_BOMBA, 0);
 
-    // Inicializa Wi-Fi
     if (cyw43_arch_init()) return 1;
     cyw43_arch_enable_sta_mode();
     if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK, 5000)) {
@@ -211,7 +261,6 @@ int main() {
         return 1;
     }
 
-    // Exibe IP no display
     uint32_t ip_addr = cyw43_state.netif[0].ip_addr.addr;
     uint8_t *ip = (uint8_t *)&ip_addr;
     char ip_display[24];
@@ -226,13 +275,11 @@ int main() {
     while (1) {
         cyw43_arch_poll();
 
-        // Leitura e atualização do nível
-        adc_select_input(2);
+        adc_select_input(2);  // GPIO 28 = ADC2
         nivel_atual = adc_read();
         atualizar_bomba(nivel_atual);
         gpio_put(LED_BOMBA, bomba_ligada);
 
-        // Atualiza display
         char str_nivel[10], str_bomba[10];
         snprintf(str_nivel, sizeof(str_nivel), "%d", nivel_atual);
         snprintf(str_bomba, sizeof(str_bomba), "%s", bomba_ligada ? "ON" : "OFF");

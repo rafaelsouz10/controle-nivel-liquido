@@ -4,6 +4,7 @@
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
+#include "hardware/pwm.h"
 #include "animacoes_led.pio.h" // Anima��es LEDs PIO
 #include "math.h"
 #include "lwip/tcp.h"
@@ -14,9 +15,11 @@
 #include "lib/config_display.h"
 
 // GPIOs
-#define LED_BOMBA 12
+#define LED_BOMBA 16
+#define LED_BOMBA_DESLIGADA 17
 #define RELAY_PIN 8
 #define PINO_POTENCIOMETRO 28  // ADC2
+#define BUZZER 21
 
 // Configura��o da matriz de LEDs
 #define NUM_PIXELS 25          // N�mero de LEDs na matriz
@@ -42,71 +45,95 @@ volatile bool reset_pendente = false;
 uint32_t cor_verde = 0xFF000000;
 uint32_t cor_vermelho = 0x00FF0000;
 
+// Funções para o Buzzer
+void init_pwm(uint gpio) {
+    gpio_set_function(gpio, GPIO_FUNC_PWM);
+    uint slice_num = pwm_gpio_to_slice_num(gpio);
+    pwm_set_clkdiv(slice_num, 125.0f);
+    pwm_set_wrap(slice_num, 1000);
+    pwm_set_chan_level(slice_num, pwm_gpio_to_channel(gpio), 0);
+    pwm_set_enabled(slice_num, true);
+}
+void set_buzzer_tone(uint gpio, uint freq) {
+    uint slice_num = pwm_gpio_to_slice_num(gpio);
+    uint top = 1000000 / freq;
+    pwm_set_wrap(slice_num, top);
+    pwm_set_chan_level(slice_num, pwm_gpio_to_channel(gpio), top / 2);
+}
+void stop_buzzer(uint gpio) {
+    uint slice_num = pwm_gpio_to_slice_num(gpio);
+    pwm_set_chan_level(slice_num, pwm_gpio_to_channel(gpio), 0);
+}
+
 // P�gina HTML servida pelo servidor
 const char HTML_BODY[] =
 "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Controle da Bomba</title>"
 "<style>"
-"body{font-family:sans-serif;text-align:center;padding:10px;}"
-"h1,h2{margin:10px;}"
-".barra{width:60%;height:20px;background:#ddd;margin:10px auto;border-radius:10px;overflow:hidden;}"
-".preenchimento{height:100%;background:#2196F3;transition:width 0.3s;}"
-".botao{font-size:20px;padding:10px 30px;margin:10px;border:none;border-radius:8px;color:white;}"
+"body{font-family:sans-serif;text-align:center;padding:5px;margin:0;}"
+"h2{margin:5px 0;}"
+".barra{width:80%;height:15px;background:#ddd;margin:5px auto;}"
+".preenchimento{height:100%;background:#2196F3;}"
+".botao{background:#2196F3;color:#fff;margin:5px;padding:5px;}"
 ".reset{background:#FF9800;}"
-"input{padding:5px;margin:5px;width:80px;}"
-"#confirm{color:green;font-weight:bold;margin-top:10px;}"
+"input{width:60px;margin:2px;}"
+"#confirm{color:green;font-size:small;}"
 "</style>"
 "<script>"
 "function inicializar(){"
 "fetch('/estado').then(r=>r.json()).then(data=>{"
-"document.getElementById('min').value = data.min;"
-"document.getElementById('max').value = data.max;"
+"document.getElementById('min').value=data.min;"
+"document.getElementById('max').value=data.max;"
 "atualizar(data);"
 "});"
+"}"
+"function calcularPercentual(valor,min,max){"
+"var percent=((valor-min)/(max-min))*100;"
+"if(percent<0)percent=0;"
+"if(percent>100)percent=100;"
+"return percent;"
 "}"
 "function atualizar(data){"
 "if(!data){"
 "fetch('/estado').then(r=>r.json()).then(d=>{"
-"document.getElementById('bomba').innerText = d.bomba ? 'Ligada' : 'Desligada';"
-"document.getElementById('nivel_valor').innerText = d.nivel;"
-"document.getElementById('barra_nivel').style.width = (d.nivel/4095*100) + '%';"
-"if(d.reset === 1){alert('Limites resetados pelo botão A');location.reload();}"
+"document.getElementById('bomba').innerText=d.bomba?'Ligada':'Desligada';"
+"document.getElementById('nivel_valor').innerText=d.nivel;"
+"var percent=calcularPercentual(d.nivel,d.min,d.max);"
+"document.getElementById('barra_nivel').style.width=percent+'%';"
+"if(d.reset===1){alert('Limites resetados');location.reload();}"
 "});"
 "}else{"
-"document.getElementById('bomba').innerText = data.bomba ? 'Ligada' : 'Desligada';"
-"document.getElementById('nivel_valor').innerText = data.nivel;"
-"document.getElementById('barra_nivel').style.width = (data.nivel/4095*100) + '%';"
-"if(data.reset === 1){alert('Limites resetados pelo botão A');location.reload();}"
+"document.getElementById('bomba').innerText=data.bomba?'Ligada':'Desligada';"
+"document.getElementById('nivel_valor').innerText=data.nivel;"
+"var percent=calcularPercentual(data.nivel,data.min,data.max);"
+"document.getElementById('barra_nivel').style.width=percent+'%';"
+"if(data.reset===1){alert('Limites resetados');location.reload();}"
 "}"
 "}"
 "setInterval(function(){atualizar();},1000);"
 "function configurar(){"
-"var min = document.getElementById('min').value;"
-"var max = document.getElementById('max').value;"
+"var min=document.getElementById('min').value;"
+"var max=document.getElementById('max').value;"
 "fetch('/config?min='+min+'&max='+max).then(r=>r.json()).then(data=>{"
-"document.getElementById('confirm').innerText = "
-"'Configuração atualizada: min=' + data.min + ', max=' + data.max;"
+"document.getElementById('confirm').innerText='Atualizado: min='+data.min+', max='+data.max;"
 "});"
 "}"
 "function resetar(){"
 "fetch('/reset').then(r=>r.text()).then(data=>{"
-"document.getElementById('confirm').innerText = data;"
-"document.getElementById('min').value = 2000;"
-"document.getElementById('max').value = 3000;"
+"document.getElementById('confirm').innerText=data;"
+"document.getElementById('min').value=2000;"
+"document.getElementById('max').value=3000;"
 "});"
 "}"
-"window.onload = inicializar;"
+"window.onload=inicializar;"
 "</script></head><body>"
-"<h1>CEPEDI TIC37</h1>"
 "<h2>EMBARCATECH</h2>"
 "<p>Bomba: <span id='bomba'>--</span></p>"
 "<div class='barra'><div id='barra_nivel' class='preenchimento' style='width:0'></div></div>"
-"<p>Nivel: <span id='nivel_valor'>--</span></p>"
-"<div style='margin-top:20px;'>"
-"<input type='number' id='min' placeholder='Mínimo'>"
-"<input type='number' id='max' placeholder='Máximo'>"
-"<button class='botao' style='background:#2196F3;' onclick='configurar()'>Configurar</button>"
-"</div>"
-"<button class='botao reset' onclick='resetar()'>Resetar Limites</button>"
+"<p>Nível: <span id='nivel_valor'>--</span></p>"
+"<input type='number' id='min' placeholder='Min'>"
+"<input type='number' id='max' placeholder='Max'><br>"
+"<button class='botao' onclick='configurar()'>Configurar</button>"
+"<button class='botao reset' onclick='resetar()'>Resetar</button>"
 "<p id='confirm'></p>"
 "</body></html>";
 
@@ -299,6 +326,12 @@ int main() {
     gpio_init(LED_BOMBA);
     gpio_set_dir(LED_BOMBA, GPIO_OUT);
     gpio_put(LED_BOMBA, 0);
+    
+    gpio_init(LED_BOMBA_DESLIGADA);
+    gpio_set_dir(LED_BOMBA_DESLIGADA, GPIO_OUT);
+    gpio_put(LED_BOMBA_DESLIGADA, 0);
+
+    init_pwm(BUZZER);
 
     // Inicialização PIO para matriz de LEDs
     pio = pio0;
@@ -333,10 +366,17 @@ int main() {
         nivel_atual = adc_read();
         atualizar_bomba(nivel_atual);
         gpio_put(LED_BOMBA, bomba_ligada);
+        gpio_put(LED_BOMBA_DESLIGADA, !bomba_ligada);
 
         char str_nivel[10], str_bomba[10];
         snprintf(str_nivel, sizeof(str_nivel), "%d", nivel_atual);
         snprintf(str_bomba, sizeof(str_bomba), "%s", bomba_ligada ? "ON" : "OFF");
+
+        if (nivel_atual > nivel_max) {
+            set_buzzer_tone(BUZZER, 395); 
+            sleep_ms(400);
+            stop_buzzer(BUZZER);
+        }
 
         Ligar_matriz_leds();
 

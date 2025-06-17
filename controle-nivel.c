@@ -4,6 +4,7 @@
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
+#include "hardware/pwm.h"
 #include "animacoes_led.pio.h" // Anima��es LEDs PIO
 #include "math.h"
 #include "lwip/tcp.h"
@@ -17,6 +18,28 @@
 #define LED_BOMBA 12
 #define RELAY_PIN 8
 #define PINO_POTENCIOMETRO 28  // ADC2
+#define BOTAO_A 5
+#define BUZZER 21
+
+// Funções para o Buzzer
+void init_pwm(uint gpio) {
+    gpio_set_function(gpio, GPIO_FUNC_PWM);
+    uint slice_num = pwm_gpio_to_slice_num(gpio);
+    pwm_set_clkdiv(slice_num, 125.0f);
+    pwm_set_wrap(slice_num, 1000);
+    pwm_set_chan_level(slice_num, pwm_gpio_to_channel(gpio), 0);
+    pwm_set_enabled(slice_num, true);
+}
+void set_buzzer_tone(uint gpio, uint freq) {
+    uint slice_num = pwm_gpio_to_slice_num(gpio);
+    uint top = 1000000 / freq;
+    pwm_set_wrap(slice_num, top);
+    pwm_set_chan_level(slice_num, pwm_gpio_to_channel(gpio), top / 2);
+}
+void stop_buzzer(uint gpio) {
+    uint slice_num = pwm_gpio_to_slice_num(gpio);
+    pwm_set_chan_level(slice_num, pwm_gpio_to_channel(gpio), 0);
+}
 
 // Configura��o da matriz de LEDs
 #define NUM_PIXELS 25          // N�mero de LEDs na matriz
@@ -300,6 +323,13 @@ int main() {
     gpio_set_dir(LED_BOMBA, GPIO_OUT);
     gpio_put(LED_BOMBA, 0);
 
+    gpio_init(BOTAO_A);
+    gpio_set_dir(BOTAO_A, GPIO_IN);
+    gpio_pull_up(BOTAO_A);
+    gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, reset_callback);
+
+    init_pwm(BUZZER);
+  
     // Inicialização PIO para matriz de LEDs
     pio = pio0;
     uint offset = pio_add_program(pio, &animacoes_led_program);
@@ -337,6 +367,12 @@ int main() {
         char str_nivel[10], str_bomba[10];
         snprintf(str_nivel, sizeof(str_nivel), "%d", nivel_atual);
         snprintf(str_bomba, sizeof(str_bomba), "%s", bomba_ligada ? "ON" : "OFF");
+
+        if (nivel_atual > 4000) {
+            set_buzzer_tone(BUZZER, 395); 
+            sleep_ms(400);
+            stop_buzzer(BUZZER);
+        }
 
         Ligar_matriz_leds();
 

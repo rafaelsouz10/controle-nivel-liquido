@@ -53,6 +53,7 @@ pico_generate_pio_header(controle-nivel ${CMAKE_CURRENT_LIST_DIR}/lib/animacoes_
 target_link_libraries(controle-nivel
         pico_stdlib
         hardware_gpio
+        hardware_pwm
         pico_cyw43_arch_lwip_threadsafe_background
         ssd1306
         )

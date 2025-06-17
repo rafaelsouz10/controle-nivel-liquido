@@ -47,6 +47,8 @@ pico_set_program_version(controle-nivel "0.1")
 pico_enable_stdio_uart(controle-nivel 0)
 pico_enable_stdio_usb(controle-nivel 1)
 
+pico_generate_pio_header(controle-nivel ${CMAKE_CURRENT_LIST_DIR}/lib/animacoes_led.pio)
+
 # Add the standard library to the build
 target_link_libraries(controle-nivel
         pico_stdlib

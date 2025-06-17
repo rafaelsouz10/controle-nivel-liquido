@@ -2,6 +2,10 @@
 #include "pico/cyw43_arch.h"
 #include "hardware/adc.h"
 #include "hardware/gpio.h"
+#include "hardware/pio.h"
+#include "hardware/clocks.h"
+#include "animacoes_led.pio.h" // Anima��es LEDs PIO
+#include "math.h"
 #include "lwip/tcp.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,17 +20,28 @@
 #define PINO_POTENCIOMETRO 28  // ADC2
 #define BOTAO_A 5
 
-// Wi-Fi
-#define WIFI_SSID "Ace"
-#define WIFI_PASS "congresso@"
+// Configura��o da matriz de LEDs
+#define NUM_PIXELS 25          // N�mero de LEDs na matriz
+#define matriz_leds 7          // Pino de sa�da para matriz
 
-// Variáveis globais do sistema
+// Vari�veis globais
+PIO pio;                      // Controlador PIO
+uint sm;                      // State Machine do PIO
+
+// Wi-Fi
+#define WIFI_SSID "Paixao 2"
+#define WIFI_PASS "25931959"
+
+// Vari�veis globais do sistema
 volatile int nivel_min = 2000;
 volatile int nivel_max = 3000;
 volatile uint16_t nivel_atual = 0;
 volatile bool bomba_ligada = false;
 
-// Página HTML servida pelo servidor
+uint32_t cor_verde = 0xFF000000;
+uint32_t cor_vermelho = 0x00FF0000;
+
+// P�gina HTML servida pelo servidor
 const char HTML_BODY[] =
 "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Controle da Bomba</title>"
 "<style>"
@@ -82,7 +97,7 @@ const char HTML_BODY[] =
 "<h2>EMBARCATECH</h2>"
 "<p>Bomba: <span id='bomba'>--</span></p>"
 "<div class='barra'><div id='barra_nivel' class='preenchimento' style='width:0'></div></div>"
-"<p>Nível: <span id='nivel_valor'>--</span></p>"
+"<p>Nivel: <span id='nivel_valor'>--</span></p>"
 "<div style='margin-top:20px;'>"
 "<input type='number' id='min' placeholder='Mínimo'>"
 "<input type='number' id='max' placeholder='Máximo'>"
@@ -117,7 +132,7 @@ static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len) {
     return ERR_OK;
 }
 
-// Recebe e trata as requisições
+// Recebe e trata as requisi��es
 static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
     if (!p) {
         tcp_close(tpcb);
@@ -226,7 +241,7 @@ static void start_http_server(void) {
     tcp_accept(pcb, connection_callback);
 }
 
-// Lógica de acionamento automático da bomba
+// L�gica de acionamento autom�tico da bomba
 void atualizar_bomba(int nivel) {
     if (nivel < nivel_min && !bomba_ligada) {
         gpio_put(RELAY_PIN, 1);
@@ -237,7 +252,39 @@ void atualizar_bomba(int nivel) {
     }
 }
 
-// Função principal
+void Ligar_matriz_leds() {
+    // Calcula o percentual atual baseado no n�vel
+    uint32_t cor_nivel_RGB = 0;
+    int percentual_nivel = (int)(((float)(nivel_atual - nivel_min) / (nivel_max - nivel_min)) * 100);
+
+    // Determina quantas linhas devem ficar acesas (cada linha = 20%)
+    int linhas_acesas = ceil((float)percentual_nivel / 20); // linhas arredondando para cima
+    if (linhas_acesas > 5) linhas_acesas = 5;  // Garante que n�o passe de 5 linhas
+
+    if (linhas_acesas <= 2){
+        cor_nivel_RGB = cor_vermelho;
+
+    }else{
+        cor_nivel_RGB = cor_verde;
+    }
+
+    for (int i = 0; i < NUM_PIXELS; i++) {
+        uint32_t valor_led = 0;
+        int linha = i / 5; // Considerando matriz 5x5 (5 pixels por linha)
+
+        if (linha < linhas_acesas) {
+            // Define a cor que quiser para indicar "n�vel cheio"
+            valor_led = cor_nivel_RGB;  // Por exemplo, uma cor fixa tipo verde
+        } else {
+            valor_led = 0x000000;  // LED apagado
+        }
+
+        pio_sm_put_blocking(pio, sm, valor_led);
+    }
+}
+
+
+// Fun��o principal
 int main() {
     stdio_init_all();
     display_init();
@@ -259,6 +306,12 @@ int main() {
     gpio_set_dir(BOTAO_A, GPIO_IN);
     gpio_pull_up(BOTAO_A);
     gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, reset_callback);
+
+    // Inicialização PIO para matriz de LEDs
+    pio = pio0;
+    uint offset = pio_add_program(pio, &animacoes_led_program);
+    sm = pio_claim_unused_sm(pio, true);
+    animacoes_led_program_init(pio, sm, offset, matriz_leds);
 
     if (cyw43_arch_init()) return 1;
     cyw43_arch_enable_sta_mode();
@@ -291,6 +344,8 @@ int main() {
         char str_nivel[10], str_bomba[10];
         snprintf(str_nivel, sizeof(str_nivel), "%d", nivel_atual);
         snprintf(str_bomba, sizeof(str_bomba), "%s", bomba_ligada ? "ON" : "OFF");
+
+        Ligar_matriz_leds();
 
         ssd1306_fill(&ssd, 0);
         ssd1306_rect(&ssd, 3, 3, 122, 60, true, false);

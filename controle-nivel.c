@@ -11,14 +11,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "lib/bootsel_btn.h"
 #include "lib/config_display.h"
 
 // GPIOs
 #define LED_BOMBA 12
 #define RELAY_PIN 8
 #define PINO_POTENCIOMETRO 28  // ADC2
-#define BOTAO_A 5
 
 // Configura��o da matriz de LEDs
 #define NUM_PIXELS 25          // N�mero de LEDs na matriz
@@ -29,14 +27,17 @@ PIO pio;                      // Controlador PIO
 uint sm;                      // State Machine do PIO
 
 // Wi-Fi
-#define WIFI_SSID "Paixao 2"
-#define WIFI_PASS "25931959"
+#define WIFI_SSID "Ace"
+#define WIFI_PASS "congresso@"
 
 // Vari�veis globais do sistema
 volatile int nivel_min = 2000;
 volatile int nivel_max = 3000;
 volatile uint16_t nivel_atual = 0;
 volatile bool bomba_ligada = false;
+volatile bool reset_pendente = false;
+
+#include "lib/config_btn.h"
 
 uint32_t cor_verde = 0xFF000000;
 uint32_t cor_vermelho = 0x00FF0000;
@@ -65,14 +66,16 @@ const char HTML_BODY[] =
 "function atualizar(data){"
 "if(!data){"
 "fetch('/estado').then(r=>r.json()).then(d=>{"
-"document.getElementById('bomba').innerText=d.bomba?'Ligada':'Desligada';"
-"document.getElementById('nivel_valor').innerText=d.nivel;"
-"document.getElementById('barra_nivel').style.width=(d.nivel/4095*100)+'%';"
+"document.getElementById('bomba').innerText = d.bomba ? 'Ligada' : 'Desligada';"
+"document.getElementById('nivel_valor').innerText = d.nivel;"
+"document.getElementById('barra_nivel').style.width = (d.nivel/4095*100) + '%';"
+"if(d.reset === 1){alert('Limites resetados pelo botão A');location.reload();}"
 "});"
 "}else{"
-"document.getElementById('bomba').innerText=data.bomba?'Ligada':'Desligada';"
-"document.getElementById('nivel_valor').innerText=data.nivel;"
-"document.getElementById('barra_nivel').style.width=(data.nivel/4095*100)+'%';"
+"document.getElementById('bomba').innerText = data.bomba ? 'Ligada' : 'Desligada';"
+"document.getElementById('nivel_valor').innerText = data.nivel;"
+"document.getElementById('barra_nivel').style.width = (data.nivel/4095*100) + '%';"
+"if(data.reset === 1){alert('Limites resetados pelo botão A');location.reload();}"
 "}"
 "}"
 "setInterval(function(){atualizar();},1000);"
@@ -113,13 +116,6 @@ struct http_state {
     size_t len;
     size_t sent;
 };
-
-// Callback botão A
-void reset_callback(uint gpio, uint32_t events) {
-    nivel_min = 2000;
-    nivel_max = 3000;
-    printf("[RESET BUTTON] Limites resetados: min=2000, max=3000\n");
-}
 
 // Callback quando parte da resposta foi enviada
 static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len) {
@@ -162,8 +158,10 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     else if (strstr(req, "GET /estado")) {
         char json[128];
         int json_len = snprintf(json, sizeof(json),
-            "{\"nivel\":%d,\"bomba\":%d,\"min\":%d,\"max\":%d}",
-            nivel_atual, bomba_ligada, nivel_min, nivel_max);
+            "{\"nivel\":%d,\"bomba\":%d,\"min\":%d,\"max\":%d,\"reset\":%d}",
+            nivel_atual, bomba_ligada, nivel_min, nivel_max, reset_pendente ? 1 : 0);
+        reset_pendente = false;
+
         hs->len = snprintf(hs->response, sizeof(hs->response),
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: application/json\r\n"
@@ -302,11 +300,6 @@ int main() {
     gpio_set_dir(LED_BOMBA, GPIO_OUT);
     gpio_put(LED_BOMBA, 0);
 
-    gpio_init(BOTAO_A);
-    gpio_set_dir(BOTAO_A, GPIO_IN);
-    gpio_pull_up(BOTAO_A);
-    gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, reset_callback);
-
     // Inicialização PIO para matriz de LEDs
     pio = pio0;
     uint offset = pio_add_program(pio, &animacoes_led_program);
@@ -360,7 +353,7 @@ int main() {
         ssd1306_draw_string(&ssd, str_bomba, 60, 50);
         ssd1306_send_data(&ssd);
 
-        sleep_ms(500);
+        sleep_ms(50);
     }
 
     cyw43_arch_deinit();

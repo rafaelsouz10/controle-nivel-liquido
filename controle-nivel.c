@@ -4,7 +4,7 @@
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
-#include "animacoes_led.pio.h" // Animações LEDs PIO
+#include "animacoes_led.pio.h" // Animaï¿½ï¿½es LEDs PIO
 #include "math.h"
 #include "lwip/tcp.h"
 #include <stdio.h>
@@ -20,11 +20,11 @@
 #define PINO_POTENCIOMETRO 28  // ADC2
 #define BOTAO_A 5
 
-// Configuração da matriz de LEDs
-#define NUM_PIXELS 25          // Número de LEDs na matriz
-#define matriz_leds 7          // Pino de saída para matriz
+// Configuraï¿½ï¿½o da matriz de LEDs
+#define NUM_PIXELS 25          // Nï¿½mero de LEDs na matriz
+#define matriz_leds 7          // Pino de saï¿½da para matriz
 
-// Variáveis globais
+// Variï¿½veis globais
 PIO pio;                      // Controlador PIO
 uint sm;                      // State Machine do PIO
 
@@ -32,7 +32,7 @@ uint sm;                      // State Machine do PIO
 #define WIFI_SSID "Paixao 2"
 #define WIFI_PASS "25931959"
 
-// Variáveis globais do sistema
+// Variï¿½veis globais do sistema
 volatile int nivel_min = 2000;
 volatile int nivel_max = 3000;
 volatile uint16_t nivel_atual = 0;
@@ -41,7 +41,7 @@ volatile bool bomba_ligada = false;
 uint32_t cor_verde = 0xFF000000;
 uint32_t cor_vermelho = 0x00FF0000;
 
-// Página HTML servida pelo servidor
+// Pï¿½gina HTML servida pelo servidor
 const char HTML_BODY[] =
 "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Controle da Bomba</title>"
 "<style>"
@@ -81,7 +81,7 @@ const char HTML_BODY[] =
 "var max = document.getElementById('max').value;"
 "fetch('/config?min='+min+'&max='+max).then(r=>r.json()).then(data=>{"
 "document.getElementById('confirm').innerText = "
-"'Configuração atualizada: min=' + data.min + ', max=' + data.max;"
+"'ConfiguraÃ§Ã£o atualizada: min=' + data.min + ', max=' + data.max;"
 "});"
 "}"
 "function resetar(){"
@@ -99,8 +99,8 @@ const char HTML_BODY[] =
 "<div class='barra'><div id='barra_nivel' class='preenchimento' style='width:0'></div></div>"
 "<p>Nivel: <span id='nivel_valor'>--</span></p>"
 "<div style='margin-top:20px;'>"
-"<input type='number' id='min' placeholder='Mínimo'>"
-"<input type='number' id='max' placeholder='Máximo'>"
+"<input type='number' id='min' placeholder='MÃ­nimo'>"
+"<input type='number' id='max' placeholder='MÃ¡ximo'>"
 "<button class='botao' style='background:#2196F3;' onclick='configurar()'>Configurar</button>"
 "</div>"
 "<button class='botao reset' onclick='resetar()'>Resetar Limites</button>"
@@ -114,7 +114,7 @@ struct http_state {
     size_t sent;
 };
 
-// Callback botão A
+// Callback botÃ£o A
 void reset_callback(uint gpio, uint32_t events) {
     nivel_min = 2000;
     nivel_max = 3000;
@@ -132,7 +132,7 @@ static err_t http_sent(void *arg, struct tcp_pcb *tpcb, u16_t len) {
     return ERR_OK;
 }
 
-// Recebe e trata as requisições
+// Recebe e trata as requisiï¿½ï¿½es
 static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
     if (!p) {
         tcp_close(tpcb);
@@ -195,7 +195,7 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     else if (strstr(req, "GET /reset")) {
         nivel_min = 2000;
         nivel_max = 3000;
-        const char *resp = "Limites resetados para padrão (2000 / 3000)";
+        const char *resp = "Limites resetados para padrÃ£o (2000 / 3000)";
         hs->len = snprintf(hs->response, sizeof(hs->response),
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/plain\r\n"
@@ -226,7 +226,7 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     return ERR_OK;
 }
 
-// Configura nova conexão
+// Configura nova conexÃ£o
 static err_t connection_callback(void *arg, struct tcp_pcb *newpcb, err_t err) {
     tcp_recv(newpcb, http_recv);
     return ERR_OK;
@@ -241,7 +241,7 @@ static void start_http_server(void) {
     tcp_accept(pcb, connection_callback);
 }
 
-// Lógica de acionamento automático da bomba
+// Lï¿½gica de acionamento automï¿½tico da bomba
 void atualizar_bomba(int nivel) {
     if (nivel < nivel_min && !bomba_ligada) {
         gpio_put(RELAY_PIN, 1);
@@ -253,13 +253,13 @@ void atualizar_bomba(int nivel) {
 }
 
 void Ligar_matriz_leds() {
-    // Calcula o percentual atual baseado no nível
+    // Calcula o percentual atual baseado no nï¿½vel
     uint32_t cor_nivel_RGB = 0;
     int percentual_nivel = (int)(((float)(nivel_atual - nivel_min) / (nivel_max - nivel_min)) * 100);
 
     // Determina quantas linhas devem ficar acesas (cada linha = 20%)
     int linhas_acesas = ceil((float)percentual_nivel / 20); // linhas arredondando para cima
-    if (linhas_acesas > 5) linhas_acesas = 5;  // Garante que não passe de 5 linhas
+    if (linhas_acesas > 5) linhas_acesas = 5;  // Garante que nï¿½o passe de 5 linhas
 
     if (linhas_acesas <= 2){
         cor_nivel_RGB = cor_vermelho;
@@ -273,7 +273,7 @@ void Ligar_matriz_leds() {
         int linha = i / 5; // Considerando matriz 5x5 (5 pixels por linha)
 
         if (linha < linhas_acesas) {
-            // Define a cor que quiser para indicar "nível cheio"
+            // Define a cor que quiser para indicar "nï¿½vel cheio"
             valor_led = cor_nivel_RGB;  // Por exemplo, uma cor fixa tipo verde
         } else {
             valor_led = 0x000000;  // LED apagado
@@ -284,10 +284,12 @@ void Ligar_matriz_leds() {
 }
 
 
-// Função principal
+// Funï¿½ï¿½o principal
 int main() {
     stdio_init_all();
     display_init();
+
+    bootsel_btn_callback();
 
     adc_init();
     adc_gpio_init(PINO_POTENCIOMETRO);
@@ -305,7 +307,7 @@ int main() {
     gpio_pull_up(BOTAO_A);
     gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, reset_callback);
 
-    // Inicialização PIO para matriz de LEDs
+    // InicializaÃ§Ã£o PIO para matriz de LEDs
     pio = pio0;
     uint offset = pio_add_program(pio, &animacoes_led_program);
     sm = pio_claim_unused_sm(pio, true);

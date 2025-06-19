@@ -19,7 +19,6 @@
 #define LED_BOMBA_DESLIGADA 17
 #define RELAY_PIN 8
 #define PINO_POTENCIOMETRO 28  // ADC2
-#define BUZZER 21
 
 // Configura��o da matriz de LEDs
 #define NUM_PIXELS 25          // N�mero de LEDs na matriz
@@ -326,12 +325,6 @@ int main() {
     gpio_init(LED_BOMBA);
     gpio_set_dir(LED_BOMBA, GPIO_OUT);
     gpio_put(LED_BOMBA, 0);
-    
-    gpio_init(LED_BOMBA_DESLIGADA);
-    gpio_set_dir(LED_BOMBA_DESLIGADA, GPIO_OUT);
-    gpio_put(LED_BOMBA_DESLIGADA, 0);
-
-    init_pwm(BUZZER);
 
     // Inicialização PIO para matriz de LEDs
     pio = pio0;
@@ -371,12 +364,6 @@ int main() {
         char str_nivel[10], str_bomba[10];
         snprintf(str_nivel, sizeof(str_nivel), "%d", nivel_atual);
         snprintf(str_bomba, sizeof(str_bomba), "%s", bomba_ligada ? "ON" : "OFF");
-
-        if (nivel_atual > nivel_max) {
-            set_buzzer_tone(BUZZER, 395); 
-            sleep_ms(400);
-            stop_buzzer(BUZZER);
-        }
 
         Ligar_matriz_leds();
 
